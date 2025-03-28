@@ -11,6 +11,7 @@ func main() {
 	memory := memory.NewMemory()
 	cpu := internal.NewCPU(memory)
 	cpu.InitOpcodeTable()
+	cpu.InitOpcodeCBTable()
 
 	memory.LoadROM("cpu_instrs.gb")
 

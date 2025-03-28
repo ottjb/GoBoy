@@ -45,7 +45,7 @@ func (cpu *CPU) SetDE(value uint16) {
 }
 
 func (cpu *CPU) HL() uint16 {
-	return uint16(cpu.B)<<8 | uint16(cpu.C)
+	return uint16(cpu.H)<<8 | uint16(cpu.L)
 }
 
 func (cpu *CPU) SetHL(value uint16) {
@@ -53,19 +53,59 @@ func (cpu *CPU) SetHL(value uint16) {
 	cpu.L = uint8(value & 0xFF)
 }
 
-func (cpu *CPU) SetCarryFlag(value byte) {
-	if value == 1 {
+func (cpu *CPU) SetCarryFlag(value bool) {
+	if value {
 		cpu.F |= 0x10
 	} else {
 		cpu.F &= 0xEF
 	}
 }
 
+func (cpu *CPU) SetHalfCarryFlag(value bool) {
+	if value {
+		cpu.F |= 0x20
+	} else {
+		cpu.F &= 0xDF
+	}
+}
+
+func (cpu *CPU) SetZeroFlag(value bool) {
+	if value {
+		cpu.F |= 0x80
+	} else {
+		cpu.F &= 0x7F
+	}
+}
+
+func (cpu *CPU) SetSubtractFlag(value bool) {
+	if value {
+		cpu.F |= 0x40
+	} else {
+		cpu.F &= 0xBF
+	}
+}
+
+func (cpu *CPU) GetCarryFlag() bool {
+	return cpu.F&0x10 != 0
+}
+
+func (cpu *CPU) GetHalfCarryFlag() bool {
+	return cpu.F&0x20 != 0
+}
+
+func (cpu *CPU) GetZeroFlag() bool {
+	return cpu.F&0x80 != 0
+}
+
+func (cpu *CPU) GetSubtractFlag() bool {
+	return cpu.F&0x40 != 0
+}
+
 func (cpu *CPU) PushStack(value uint16) {
 	cpu.SP--
 	cpu.memory.StoreByte(cpu.SP, byte(value&0xFF))
 	cpu.SP--
-	cpu.memory.StoreByte(cpu.SP, byte((value>>8)*0xFF))
+	cpu.memory.StoreByte(cpu.SP, byte((value>>8)&0xFF))
 }
 
 func (cpu *CPU) Cycle() bool {
@@ -73,10 +113,10 @@ func (cpu *CPU) Cycle() bool {
 	handler := opcodeTable[opcode]
 
 	if handler != nil {
-		fmt.Printf("Executing opcode: 0x%02X\n", opcode)
+		fmt.Printf("Executing opcode 0x%02X at PC 0x%04X\n", opcode, cpu.PC)
 		handler()
 	} else {
-		fmt.Printf("Unhandled opcode: 0x%02X\n", opcode)
+		fmt.Printf("Unhandled opcode 0x%02X at PC 0x%04X\n", opcode, cpu.PC)
 		return true
 	}
 	return false
@@ -89,16 +129,56 @@ var opcodeTable [256]opcodeFunc
 
 func (cpu *CPU) InitOpcodeTable() {
 	opcodeTable[0x00] = cpu.NOP
+	opcodeTable[0x01] = cpu.LD_BC_u16
+	opcodeTable[0x03] = cpu.INC_BC
 	opcodeTable[0x07] = cpu.RLCA
 	opcodeTable[0x0F] = cpu.RRCA
+	opcodeTable[0x11] = cpu.LD_DE_u16
+	opcodeTable[0x13] = cpu.INC_DE
+	opcodeTable[0x1F] = cpu.RRA
+	opcodeTable[0x20] = cpu.JR_NZ_r8
+	opcodeTable[0x21] = cpu.LD_HL_u16
+	opcodeTable[0x26] = cpu.LD_H_u8
+	opcodeTable[0x2D] = cpu.DEC_L
+	opcodeTable[0x2F] = cpu.CPL
+	opcodeTable[0x30] = cpu.JR_NC_r8
 	opcodeTable[0x31] = cpu.LD_SP_u16
+	opcodeTable[0x3C] = cpu.INC_A
 	opcodeTable[0x3E] = cpu.LD_A_u8
+	opcodeTable[0x40] = cpu.LD_B_B
+	opcodeTable[0x46] = cpu.LD_B_HL
+	opcodeTable[0x4E] = cpu.LD_C_HL
 	opcodeTable[0x55] = cpu.LD_D_L
+	opcodeTable[0x56] = cpu.LD_D_HL
+	opcodeTable[0x5F] = cpu.LD_E_A
+	opcodeTable[0x80] = cpu.ADD_A_B
+	opcodeTable[0x81] = cpu.ADD_A_C
+	opcodeTable[0x82] = cpu.ADD_A_D
+	opcodeTable[0x83] = cpu.ADD_A_E
+	opcodeTable[0xAE] = cpu.XOR_A_HL
+	opcodeTable[0xB9] = cpu.CP_A_C
 	opcodeTable[0xC3] = cpu.JP_u16
+	opcodeTable[0xC5] = cpu.PUSH_BC
+	opcodeTable[0xC9] = cpu.RET
+	opcodeTable[0xCB] = cpu.ExecuteCBOpcode
+	opcodeTable[0xCD] = cpu.CALL_u16
+	opcodeTable[0xD5] = cpu.PUSH_DE
 	opcodeTable[0xE0] = cpu.LD_C_A
+	opcodeTable[0xE1] = cpu.POP_HL
+	opcodeTable[0xE5] = cpu.PUSH_HL
 	opcodeTable[0xEA] = cpu.LD_u16_A
+	opcodeTable[0xF0] = cpu.LD_A_u8C
 	opcodeTable[0xF3] = cpu.DI
+	opcodeTable[0xF5] = cpu.PUSH_AF
 	opcodeTable[0xFF] = cpu.RST_38H
+}
+
+var opcodeCBTable [256]opcodeFunc
+
+func (cpu *CPU) InitOpcodeCBTable() {
+	opcodeCBTable[0x19] = cpu.RR_C
+	opcodeCBTable[0x1A] = cpu.RR_D
+	opcodeCBTable[0x38] = cpu.SRL_B
 }
 
 func (cpu *CPU) NOP() {
@@ -106,23 +186,149 @@ func (cpu *CPU) NOP() {
 	cpu.PC++
 }
 
+func (cpu *CPU) LD_BC_u16() {
+	// 0x01: Load next 2 bytes to BC
+	cpu.PC++
+	low := cpu.memory.GetByte(cpu.PC)
+	cpu.PC++
+	high := cpu.memory.GetByte(cpu.PC)
+	value := uint16(high)<<8 | uint16(low)
+
+	cpu.B = uint8(value >> 8)
+	cpu.C = uint8(value & 0xFF)
+	cpu.PC++
+}
+
+func (cpu *CPU) INC_BC() {
+	// 0x03: Increment BC
+	if cpu.C == 0xFF {
+		cpu.C = 0x00
+		cpu.B++
+	} else {
+		cpu.C++
+	}
+	cpu.PC++
+}
+
 func (cpu *CPU) RLCA() {
 	// 0x07: Rotate the value of register A left by one bit
 	carry := (cpu.A >> 7) & 1
 	cpu.A = (cpu.A << 1) | carry
-	cpu.SetCarryFlag(carry)
+	cpu.SetCarryFlag(carry == 1)
 	cpu.PC++
 }
 
 func (cpu *CPU) RRCA() {
 	// 0x0F: Rotate the value of register A right one bit
-	carry := cpu.F & 0x10
-	carry = carry >> 4
-
-	cpu.F &= 0xEF
+	carry := cpu.A & 0x01
 	cpu.A = (cpu.A >> 1) | (carry << 7)
-	cpu.SetCarryFlag(cpu.A & 0x01)
+
+	cpu.SetCarryFlag(carry == 1)
+	cpu.SetZeroFlag(false)
+	cpu.SetHalfCarryFlag(false)
+	cpu.SetSubtractFlag(false)
+
 	cpu.PC++
+}
+
+func (cpu *CPU) LD_DE_u16() {
+	// 0x11: Load next 2 bytes to DE
+	cpu.PC++
+	low := cpu.memory.GetByte(cpu.PC)
+	cpu.PC++
+	high := cpu.memory.GetByte(cpu.PC)
+	value := uint16(high)<<8 | uint16(low)
+
+	cpu.D = uint8(value >> 8)
+	cpu.E = uint8(value & 0xFF)
+	cpu.PC++
+}
+
+func (cpu *CPU) INC_DE() {
+	// 0x13: Increment DE
+	if cpu.E == 0xFF {
+		cpu.E = 0x00
+		cpu.D++
+	} else {
+		cpu.E++
+	}
+	cpu.PC++
+}
+
+func (cpu *CPU) RRA() {
+	// 0x1F: Rotate register A right
+	carry := cpu.A & 0x01
+	cpu.A = (cpu.A >> 1) | (boolToUint8(cpu.GetCarryFlag()) << 7)
+
+	cpu.SetCarryFlag(carry == 1)
+	cpu.SetZeroFlag(cpu.A == 0)
+	cpu.SetSubtractFlag(false)
+	cpu.SetHalfCarryFlag(false)
+
+	cpu.PC++
+}
+
+func (cpu *CPU) JR_NZ_r8() {
+	// 0x20: If Z flag == 0, jump to PC + r8
+	offset := int8(cpu.memory.GetByte(cpu.PC + 1))
+
+	if !cpu.GetZeroFlag() {
+		cpu.PC += uint16(offset) + 2
+	} else {
+		cpu.PC += 2
+	}
+}
+
+func (cpu *CPU) LD_HL_u16() {
+	// 0x21: Load next 2 bytes to HL
+	cpu.PC++
+	low := cpu.memory.GetByte(cpu.PC)
+	cpu.PC++
+	high := cpu.memory.GetByte(cpu.PC)
+	value := uint16(high)<<8 | uint16(low)
+
+	cpu.H = uint8(value >> 8)
+	cpu.L = uint8(value & 0xFF)
+	cpu.PC++
+}
+
+func (cpu *CPU) LD_H_u8() {
+	// 0x26: Load next byte into register H
+	cpu.PC++
+	cpu.H = cpu.memory.GetByte(cpu.PC)
+	cpu.PC++
+}
+
+func (cpu *CPU) DEC_L() {
+	// 0x2D: Decrement register L by 1
+	cpu.L--
+
+	cpu.SetSubtractFlag(true)
+	cpu.SetZeroFlag(cpu.L == 0)
+	cpu.SetHalfCarryFlag((cpu.L & 0x0F) == 0x0F)
+
+	cpu.PC++
+}
+
+func (cpu *CPU) CPL() {
+	// 0x2F: Complement A register
+	cpu.A = ^cpu.A
+
+	cpu.SetSubtractFlag(true)
+	cpu.SetHalfCarryFlag(false)
+
+	cpu.PC++
+}
+
+func (cpu *CPU) JR_NC_r8() {
+	// 0x30: If C flag == 0, jump to PC + r8
+	offset := int8(cpu.memory.GetByte(cpu.PC + 1))
+
+	if !cpu.GetCarryFlag() {
+		cpu.PC += uint16(offset) + 2
+	} else {
+		cpu.PC += 2
+	}
 }
 
 func (cpu *CPU) LD_SP_u16() {
@@ -136,6 +342,18 @@ func (cpu *CPU) LD_SP_u16() {
 	cpu.PC++
 }
 
+func (cpu *CPU) INC_A() {
+	// 0x3C: Increment register A
+	oldA := cpu.A
+	cpu.A++
+
+	cpu.SetZeroFlag(cpu.A == 0)
+	cpu.SetSubtractFlag(false)
+	cpu.SetHalfCarryFlag((oldA&0x0F)+1 > 0x0F)
+
+	cpu.PC++
+}
+
 func (cpu *CPU) LD_A_u8() {
 	// 0x3E: Load next byte into register A
 	cpu.PC++
@@ -143,9 +361,117 @@ func (cpu *CPU) LD_A_u8() {
 	cpu.PC++
 }
 
+func (cpu *CPU) LD_B_B() {
+	// 0x40: Load the contents of register B into register B (does nothing)
+	cpu.PC++
+}
+
+func (cpu *CPU) LD_B_HL() {
+	// 0x46: Load the value at memory location HL into register B
+	cpu.B = cpu.memory.GetByte(cpu.HL())
+
+	cpu.PC++
+}
+
+func (cpu *CPU) LD_C_HL() {
+	// 0x4E: Load the value at memory location HL into register C
+	cpu.C = cpu.memory.GetByte(cpu.HL())
+
+	cpu.PC++
+}
+
 func (cpu *CPU) LD_D_L() {
 	// 0x55: Load the contents of register L into register D
 	cpu.D = cpu.L
+	cpu.PC++
+}
+
+func (cpu *CPU) LD_D_HL() {
+	// 0x56: Load the value at memory location HL into register D
+	cpu.D = cpu.memory.GetByte(cpu.HL())
+
+	cpu.PC++
+}
+
+func (cpu *CPU) LD_E_A() {
+	// 0x5F: Load the contents of register A into register E
+	cpu.E = cpu.A
+	cpu.PC++
+}
+
+func (cpu *CPU) ADD_A_B() {
+	// 0x80: A = A + B
+	result := uint16(cpu.A) + uint16(cpu.B)
+
+	cpu.SetZeroFlag(uint8(result) == 0)
+	cpu.SetSubtractFlag(false)
+	cpu.SetHalfCarryFlag((cpu.A&0x0F)+(cpu.B&0x0F) > 0x0F)
+	cpu.SetCarryFlag(result > 0xFF)
+
+	cpu.A = uint8(result)
+	cpu.PC++
+}
+
+func (cpu *CPU) ADD_A_C() {
+	// 0x81: A = A + C
+	result := uint16(cpu.A) + uint16(cpu.C)
+
+	cpu.SetZeroFlag(uint8(result) == 0)
+	cpu.SetSubtractFlag(false)
+	cpu.SetHalfCarryFlag((cpu.A&0x0F)+(cpu.C&0x0F) > 0x0F)
+	cpu.SetCarryFlag(result > 0xFF)
+
+	cpu.A = uint8(result)
+	cpu.PC++
+}
+
+func (cpu *CPU) ADD_A_D() {
+	// 0x82: A = A + D
+	result := uint16(cpu.A) + uint16(cpu.D)
+
+	cpu.SetZeroFlag(uint8(result) == 0)
+	cpu.SetSubtractFlag(false)
+	cpu.SetHalfCarryFlag((cpu.A&0x0F)+(cpu.D&0x0F) > 0x0F)
+	cpu.SetCarryFlag(result > 0xFF)
+
+	cpu.A = uint8(result)
+	cpu.PC++
+}
+
+func (cpu *CPU) ADD_A_E() {
+	// 0x83: A = A + E
+	result := uint16(cpu.A) + uint16(cpu.E)
+
+	cpu.SetZeroFlag(uint8(result) == 0)
+	cpu.SetSubtractFlag(false)
+	cpu.SetHalfCarryFlag((cpu.A&0x0F)+(cpu.E&0x0F) > 0x0F)
+	cpu.SetCarryFlag(result > 0xFF)
+
+	cpu.A = uint8(result)
+	cpu.PC++
+}
+
+func (cpu *CPU) XOR_A_HL() {
+	// 0xAE: Perform XOR operation with value from memory location stored in HL on register A
+	cpu.A ^= cpu.memory.GetByte(cpu.HL())
+
+	cpu.SetZeroFlag(cpu.A == 0)
+	cpu.SetCarryFlag(false)
+	cpu.SetHalfCarryFlag(false)
+	cpu.SetSubtractFlag(false)
+
+	cpu.PC++
+}
+
+func (cpu *CPU) CP_A_C() {
+	// 0xB9: Compare A and C, does not modify registers, only flags
+	result := int16(cpu.A) - int16(cpu.C)
+
+	cpu.SetZeroFlag(uint8(result) == 0)
+	cpu.SetSubtractFlag(true)
+	cpu.SetHalfCarryFlag((cpu.A & 0x0F) < (cpu.C & 0x0F))
+	cpu.SetCarryFlag(cpu.A < cpu.C)
+
 	cpu.PC++
 }
 
@@ -159,10 +485,82 @@ func (cpu *CPU) JP_u16() {
 	cpu.PC = address
 }
 
+func (cpu *CPU) PUSH_BC() {
+	// 0xC5: Push BC to stack
+	cpu.PushStack(cpu.BC())
+	cpu.PC++
+}
+
+func (cpu *CPU) RET() {
+	// 0xC9: Return from subroutine
+	low := cpu.memory.GetByte(cpu.SP)
+	cpu.SP++
+	high := cpu.memory.GetByte(cpu.SP)
+	cpu.SP++
+
+	cpu.PC = uint16(high)<<8 | uint16(low)
+}
+
+func (cpu *CPU) ExecuteCBOpcode() {
+	// 0xCB: Prefixed opcodes
+	cpu.PC++
+	opcode := cpu.memory.GetByte(cpu.PC)
+	handler := opcodeCBTable[opcode]
+
+	if handler != nil {
+		// Execute the handler corresponding to the second byte
+		fmt.Printf("Executing CB-prefixed opcode: 0x%02X at PC 0x%04X\n", opcode, cpu.PC)
+		handler()
+	} else {
+		// Handle unrecognized opcode
+		fmt.Printf("Unhandled CB-prefixed opcode: 0x%02X at PC 0x%04X\n", opcode, cpu.PC)
+	}
+
+	cpu.PC++
+}
+
+func (cpu *CPU) CALL_u16() {
+	// 0xCD: Push PC to stack, load next two bytes into PC
+	cpu.PC++
+	low := cpu.memory.GetByte(cpu.PC)
+	cpu.PC++
+	high := cpu.memory.GetByte(cpu.PC)
+	address := uint16(high)<<8 | uint16(low)
+
+	cpu.PC++
+	cpu.PushStack(cpu.PC)
+
+	cpu.PC = address
+}
+
+func (cpu *CPU) PUSH_DE() {
+	// 0xD5: Push DE to stack
+	cpu.PushStack(cpu.DE())
+	cpu.PC++
+}
+
 func (cpu *CPU) LD_C_A() {
 	// 0xE0: Load value of register A into memory location of 0xFF00 + register C
 	address := 0xFF00 + uint16(cpu.C)
 	cpu.memory.StoreByte(address, cpu.A)
+	cpu.PC++
+}
+
+func (cpu *CPU) POP_HL() {
+	// 0xE1: Pop two bytes from the stack into register HL
+	low := cpu.memory.GetByte(cpu.SP)
+	cpu.SP++
+	high := cpu.memory.GetByte(cpu.SP)
+	cpu.SP++
+
+	cpu.H = high
+	cpu.L = low
+	cpu.PC++
+}
+
+func (cpu *CPU) PUSH_HL() {
+	// 0xE5: Push HL to stack
+	cpu.PushStack(cpu.HL())
 	cpu.PC++
 }
 
@@ -177,9 +575,22 @@ func (cpu *CPU) LD_u16_A() {
 	cpu.PC++
 }
 
+func (cpu *CPU) LD_A_u8C() {
+	// 0xF0: Load value at 0xFF00 + C into register A
+	address := 0xFF00 + uint16(cpu.C)
+	cpu.A = cpu.memory.GetByte(address)
+	cpu.PC++
+}
+
 func (cpu *CPU) DI() {
 	// 0xF3: Disable interrupts
 	cpu.IME = false
+	cpu.PC++
+}
+
+func (cpu *CPU) PUSH_AF() {
+	// 0xF5: Push AF to stack
+	cpu.PushStack(cpu.AF())
 	cpu.PC++
 }
 
@@ -187,4 +598,46 @@ func (cpu *CPU) RST_38H() {
 	// 0xFF: Save PC to stack and jump to address 0x0038
 	cpu.PushStack(cpu.PC)
 	cpu.PC = 0x0038
+}
+
+// CB-Prefixed Opcodes //
+func (cpu *CPU) RR_C() {
+	// 0x19: Rotate Right operation on register C
+	carry := cpu.C & 0x01
+	cpu.C = (cpu.C >> 1) | (boolToUint8(cpu.GetCarryFlag()) << 7)
+
+	cpu.SetCarryFlag(carry == 1)
+	cpu.SetZeroFlag(cpu.C == 0)
+	cpu.SetSubtractFlag(false)
+	cpu.SetHalfCarryFlag(false)
+}
+
+func (cpu *CPU) RR_D() {
+	// 0x1A: Rotate Right operation on register D
+	carry := cpu.D & 0x01
+	cpu.D = (cpu.D >> 1) | (boolToUint8(cpu.GetCarryFlag()) << 7)
+
+	cpu.SetCarryFlag(carry == 1)
+	cpu.SetZeroFlag(cpu.D == 0)
+	cpu.SetSubtractFlag(false)
+	cpu.SetHalfCarryFlag(false)
+}
+
+func (cpu *CPU) SRL_B() {
+	// 0x38: Shift bits in register B one bit to the right
+	carry := cpu.B & 0x01
+	cpu.B >>= 1
+
+	cpu.SetCarryFlag(carry == 1)
+	cpu.SetZeroFlag(cpu.B == 0)
+	cpu.SetSubtractFlag(false)
+	cpu.SetHalfCarryFlag(false)
+}
+
+// Helper functions //
+func boolToUint8(b bool) uint8 {
+	if b {
+		return 1
+	}
+	return 0
 }
