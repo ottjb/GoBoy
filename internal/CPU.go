@@ -138,7 +138,10 @@ func (cpu *CPU) InitOpcodeTable() {
 	opcodeTable[0x1F] = cpu.RRA
 	opcodeTable[0x20] = cpu.JR_NZ_r8
 	opcodeTable[0x21] = cpu.LD_HL_u16
+	opcodeTable[0x22] = cpu.LD_HLi_A
+	opcodeTable[0x25] = cpu.DEC_H
 	opcodeTable[0x26] = cpu.LD_H_u8
+	opcodeTable[0x2C] = cpu.INC_L
 	opcodeTable[0x2D] = cpu.DEC_L
 	opcodeTable[0x2F] = cpu.CPL
 	opcodeTable[0x30] = cpu.JR_NC_r8
@@ -147,29 +150,47 @@ func (cpu *CPU) InitOpcodeTable() {
 	opcodeTable[0x3E] = cpu.LD_A_u8
 	opcodeTable[0x40] = cpu.LD_B_B
 	opcodeTable[0x46] = cpu.LD_B_HL
+	opcodeTable[0x47] = cpu.LD_B_A
 	opcodeTable[0x4E] = cpu.LD_C_HL
+	opcodeTable[0x4F] = cpu.LD_C_A
 	opcodeTable[0x55] = cpu.LD_D_L
 	opcodeTable[0x56] = cpu.LD_D_HL
+	opcodeTable[0x57] = cpu.LD_D_A
 	opcodeTable[0x5F] = cpu.LD_E_A
+	opcodeTable[0x67] = cpu.LD_H_A
+	opcodeTable[0x6F] = cpu.LD_L_A
+	opcodeTable[0x70] = cpu.LD_HL_B
+	opcodeTable[0x71] = cpu.LD_HL_C
+	opcodeTable[0x72] = cpu.LD_HL_D
+	opcodeTable[0x78] = cpu.LD_A_B
+	opcodeTable[0x79] = cpu.LD_A_C
+	opcodeTable[0x7A] = cpu.LD_A_D
+	opcodeTable[0x7B] = cpu.LD_A_E
 	opcodeTable[0x80] = cpu.ADD_A_B
 	opcodeTable[0x81] = cpu.ADD_A_C
 	opcodeTable[0x82] = cpu.ADD_A_D
 	opcodeTable[0x83] = cpu.ADD_A_E
 	opcodeTable[0xAE] = cpu.XOR_A_HL
 	opcodeTable[0xB9] = cpu.CP_A_C
+	opcodeTable[0xC1] = cpu.POP_BC
 	opcodeTable[0xC3] = cpu.JP_u16
 	opcodeTable[0xC5] = cpu.PUSH_BC
 	opcodeTable[0xC9] = cpu.RET
 	opcodeTable[0xCB] = cpu.ExecuteCBOpcode
 	opcodeTable[0xCD] = cpu.CALL_u16
+	opcodeTable[0xD1] = cpu.POP_DE
 	opcodeTable[0xD5] = cpu.PUSH_DE
-	opcodeTable[0xE0] = cpu.LD_C_A
+	opcodeTable[0xE0] = cpu.LD_u8C_A
 	opcodeTable[0xE1] = cpu.POP_HL
 	opcodeTable[0xE5] = cpu.PUSH_HL
 	opcodeTable[0xEA] = cpu.LD_u16_A
+	opcodeTable[0xEE] = cpu.XOR_A_u8
 	opcodeTable[0xF0] = cpu.LD_A_u8C
+	opcodeTable[0xF1] = cpu.POP_AF
 	opcodeTable[0xF3] = cpu.DI
 	opcodeTable[0xF5] = cpu.PUSH_AF
+	opcodeTable[0xF9] = cpu.LD_SP_HL
+	opcodeTable[0xFA] = cpu.LD_A_u16
 	opcodeTable[0xFF] = cpu.RST_38H
 }
 
@@ -292,10 +313,40 @@ func (cpu *CPU) LD_HL_u16() {
 	cpu.PC++
 }
 
+func (cpu *CPU) LD_HLi_A() {
+	// 0x22: Store the value in register A at memory location HL, then increment HL
+	cpu.memory.StoreByte(cpu.HL(), cpu.A)
+	cpu.SetHL(cpu.HL() + 1)
+	cpu.PC++
+}
+
+func (cpu *CPU) DEC_H() {
+	// 0x25: Decrement register H by 1
+	cpu.H--
+
+	cpu.SetSubtractFlag(true)
+	cpu.SetZeroFlag(cpu.H == 0)
+	cpu.SetHalfCarryFlag((cpu.H & 0x0F) == 0x0F)
+
+	cpu.PC++
+}
+
 func (cpu *CPU) LD_H_u8() {
 	// 0x26: Load next byte into register H
 	cpu.PC++
 	cpu.H = cpu.memory.GetByte(cpu.PC)
+	cpu.PC++
+}
+
+func (cpu *CPU) INC_L() {
+	// 0x2C: Increment register L
+	oldL := cpu.L
+	cpu.L++
+
+	cpu.SetZeroFlag(cpu.L == 0)
+	cpu.SetSubtractFlag(false)
+	cpu.SetHalfCarryFlag((oldL&0x0F)+1 > 0x0F)
+
 	cpu.PC++
 }
 
@@ -373,10 +424,22 @@ func (cpu *CPU) LD_B_HL() {
 	cpu.PC++
 }
 
+func (cpu *CPU) LD_B_A() {
+	// 0x47: Load the contents of register A into register B
+	cpu.B = cpu.A
+	cpu.PC++
+}
+
 func (cpu *CPU) LD_C_HL() {
 	// 0x4E: Load the value at memory location HL into register C
 	cpu.C = cpu.memory.GetByte(cpu.HL())
 
+	cpu.PC++
+}
+
+func (cpu *CPU) LD_C_A() {
+	// 0x4F: Load the contents of register A into register C
+	cpu.C = cpu.A
 	cpu.PC++
 }
 
@@ -393,9 +456,69 @@ func (cpu *CPU) LD_D_HL() {
 	cpu.PC++
 }
 
+func (cpu *CPU) LD_D_A() {
+	// 0x57: Load the contents of register A into register D
+	cpu.D = cpu.A
+	cpu.PC++
+}
+
 func (cpu *CPU) LD_E_A() {
 	// 0x5F: Load the contents of register A into register E
 	cpu.E = cpu.A
+	cpu.PC++
+}
+
+func (cpu *CPU) LD_H_A() {
+	// 0x67: Load the contents of register A into register H
+	cpu.H = cpu.A
+	cpu.PC++
+}
+
+func (cpu *CPU) LD_L_A() {
+	// 0x6F: Load the contents of register A into register L
+	cpu.L = cpu.A
+	cpu.PC++
+}
+
+func (cpu *CPU) LD_HL_B() {
+	// 0x70: Store the value in register B at memory location HL
+	cpu.memory.StoreByte(cpu.HL(), cpu.B)
+	cpu.PC++
+}
+
+func (cpu *CPU) LD_HL_C() {
+	// 0x71: Store the value in register C at memory location HL
+	cpu.memory.StoreByte(cpu.HL(), cpu.C)
+	cpu.PC++
+}
+
+func (cpu *CPU) LD_HL_D() {
+	// 0x72: Store the value in register D at memory location HL
+	cpu.memory.StoreByte(cpu.HL(), cpu.D)
+	cpu.PC++
+}
+
+func (cpu *CPU) LD_A_B() {
+	// 0x78: Load the contents of register B into register A
+	cpu.A = cpu.B
+	cpu.PC++
+}
+
+func (cpu *CPU) LD_A_C() {
+	// 0x79: Load the contents of register C into register A
+	cpu.A = cpu.C
+	cpu.PC++
+}
+
+func (cpu *CPU) LD_A_D() {
+	// 0x7A: Load the contents of register D into register A
+	cpu.A = cpu.D
+	cpu.PC++
+}
+
+func (cpu *CPU) LD_A_E() {
+	// 0x7B: Load the contents of register E into register A
+	cpu.A = cpu.E
 	cpu.PC++
 }
 
@@ -475,6 +598,18 @@ func (cpu *CPU) CP_A_C() {
 	cpu.PC++
 }
 
+func (cpu *CPU) POP_BC() {
+	// 0xC1: Pop two bytes from the stack into register BC
+	low := cpu.memory.GetByte(cpu.SP)
+	cpu.SP++
+	high := cpu.memory.GetByte(cpu.SP)
+	cpu.SP++
+
+	cpu.B = high
+	cpu.C = low
+	cpu.PC++
+}
+
 func (cpu *CPU) JP_u16() {
 	// 0xC3: Set PC to next two bytes in program
 	cpu.PC++
@@ -514,6 +649,7 @@ func (cpu *CPU) ExecuteCBOpcode() {
 	} else {
 		// Handle unrecognized opcode
 		fmt.Printf("Unhandled CB-prefixed opcode: 0x%02X at PC 0x%04X\n", opcode, cpu.PC)
+		fmt.Printf("\n\n\n")
 	}
 
 	cpu.PC++
@@ -533,13 +669,25 @@ func (cpu *CPU) CALL_u16() {
 	cpu.PC = address
 }
 
+func (cpu *CPU) POP_DE() {
+	// 0xD1: Pop two bytes from the stack into register DE
+	low := cpu.memory.GetByte(cpu.SP)
+	cpu.SP++
+	high := cpu.memory.GetByte(cpu.SP)
+	cpu.SP++
+
+	cpu.D = high
+	cpu.E = low
+	cpu.PC++
+}
+
 func (cpu *CPU) PUSH_DE() {
 	// 0xD5: Push DE to stack
 	cpu.PushStack(cpu.DE())
 	cpu.PC++
 }
 
-func (cpu *CPU) LD_C_A() {
+func (cpu *CPU) LD_u8C_A() {
 	// 0xE0: Load value of register A into memory location of 0xFF00 + register C
 	address := 0xFF00 + uint16(cpu.C)
 	cpu.memory.StoreByte(address, cpu.A)
@@ -575,10 +723,35 @@ func (cpu *CPU) LD_u16_A() {
 	cpu.PC++
 }
 
+func (cpu *CPU) XOR_A_u8() {
+	// 0xEE: Perform XOR operation with value of the next byte on register A
+	cpu.PC++
+	cpu.A ^= cpu.memory.GetByte(cpu.PC)
+
+	cpu.SetZeroFlag(cpu.A == 0)
+	cpu.SetCarryFlag(false)
+	cpu.SetHalfCarryFlag(false)
+	cpu.SetSubtractFlag(false)
+
+	cpu.PC++
+}
+
 func (cpu *CPU) LD_A_u8C() {
 	// 0xF0: Load value at 0xFF00 + C into register A
 	address := 0xFF00 + uint16(cpu.C)
 	cpu.A = cpu.memory.GetByte(address)
+	cpu.PC++
+}
+
+func (cpu *CPU) POP_AF() {
+	// 0xF1: Pop two bytes from the stack into register AF
+	low := cpu.memory.GetByte(cpu.SP)
+	cpu.SP++
+	high := cpu.memory.GetByte(cpu.SP)
+	cpu.SP++
+
+	cpu.A = high
+	cpu.F = low
 	cpu.PC++
 }
 
@@ -591,6 +764,24 @@ func (cpu *CPU) DI() {
 func (cpu *CPU) PUSH_AF() {
 	// 0xF5: Push AF to stack
 	cpu.PushStack(cpu.AF())
+	cpu.PC++
+}
+
+func (cpu *CPU) LD_SP_HL() {
+	// 0xF9: Set SP to the value in HL
+	cpu.SP = cpu.HL()
+	cpu.PC++
+}
+
+func (cpu *CPU) LD_A_u16() {
+	// 0xFA: Loads the value from memory address of next two bytes to register A
+	cpu.PC++
+	low := cpu.memory.GetByte(cpu.PC)
+	cpu.PC++
+	high := cpu.memory.GetByte(cpu.PC)
+	address := uint16(high)<<8 | uint16(low)
+
+	cpu.A = cpu.memory.GetByte(address)
 	cpu.PC++
 }
 
