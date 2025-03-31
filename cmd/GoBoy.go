@@ -8,12 +8,22 @@ import (
 
 func main() {
 	fmt.Println("Starting GoBoy Emulator")
-	memory := memory.NewMemory()
-	cpu := internal.NewCPU(memory)
+
+	cart, err := memory.LoadCartridge("cpu_instrs.gb")
+	if err != nil {
+		fmt.Println("Error:", err)
+		return
+	} else {
+		cart.Debug()
+	}
+
+	rtc := memory.NewRTC()
+
+	m := memory.NewMemory(cart, rtc)
+
+	cpu := internal.NewCPU(m)
 	cpu.InitOpcodeTable()
 	cpu.InitOpcodeCBTable()
-
-	memory.LoadROM("cpu_instrs.gb")
 
 	for {
 		err := cpu.Cycle()

@@ -103,20 +103,20 @@ func (cpu *CPU) GetSubtractFlag() bool {
 
 func (cpu *CPU) PushStack(value uint16) {
 	cpu.SP--
-	cpu.memory.StoreByte(cpu.SP, byte(value&0xFF))
+	cpu.memory.Write(cpu.SP, byte(value&0xFF))
 	cpu.SP--
-	cpu.memory.StoreByte(cpu.SP, byte((value>>8)&0xFF))
+	cpu.memory.Write(cpu.SP, byte((value>>8)&0xFF))
 }
 
 func (cpu *CPU) Cycle() bool {
-	opcode := cpu.memory.GetByte(cpu.PC)
+	opcode := cpu.memory.Read(cpu.PC)
 	handler := opcodeTable[opcode]
 
 	if handler != nil {
-		fmt.Printf("Executing opcode 0x%02X at PC 0x%04X\n", opcode, cpu.PC)
+		//fmt.Printf("Executing opcode 0x%02X at PC 0x%04X\n", opcode, cpu.PC)
 		handler()
 	} else {
-		fmt.Printf("Unhandled opcode 0x%02X at PC 0x%04X\n", opcode, cpu.PC)
+		//fmt.Printf("Unhandled opcode 0x%02X at PC 0x%04X\n", opcode, cpu.PC)
 		return true
 	}
 	return false
@@ -210,9 +210,9 @@ func (cpu *CPU) NOP() {
 func (cpu *CPU) LD_BC_u16() {
 	// 0x01: Load next 2 bytes to BC
 	cpu.PC++
-	low := cpu.memory.GetByte(cpu.PC)
+	low := cpu.memory.Read(cpu.PC)
 	cpu.PC++
-	high := cpu.memory.GetByte(cpu.PC)
+	high := cpu.memory.Read(cpu.PC)
 	value := uint16(high)<<8 | uint16(low)
 
 	cpu.B = uint8(value >> 8)
@@ -255,9 +255,9 @@ func (cpu *CPU) RRCA() {
 func (cpu *CPU) LD_DE_u16() {
 	// 0x11: Load next 2 bytes to DE
 	cpu.PC++
-	low := cpu.memory.GetByte(cpu.PC)
+	low := cpu.memory.Read(cpu.PC)
 	cpu.PC++
-	high := cpu.memory.GetByte(cpu.PC)
+	high := cpu.memory.Read(cpu.PC)
 	value := uint16(high)<<8 | uint16(low)
 
 	cpu.D = uint8(value >> 8)
@@ -291,7 +291,7 @@ func (cpu *CPU) RRA() {
 
 func (cpu *CPU) JR_NZ_r8() {
 	// 0x20: If Z flag == 0, jump to PC + r8
-	offset := int8(cpu.memory.GetByte(cpu.PC + 1))
+	offset := int8(cpu.memory.Read(cpu.PC + 1))
 
 	if !cpu.GetZeroFlag() {
 		cpu.PC += uint16(offset) + 2
@@ -303,9 +303,9 @@ func (cpu *CPU) JR_NZ_r8() {
 func (cpu *CPU) LD_HL_u16() {
 	// 0x21: Load next 2 bytes to HL
 	cpu.PC++
-	low := cpu.memory.GetByte(cpu.PC)
+	low := cpu.memory.Read(cpu.PC)
 	cpu.PC++
-	high := cpu.memory.GetByte(cpu.PC)
+	high := cpu.memory.Read(cpu.PC)
 	value := uint16(high)<<8 | uint16(low)
 
 	cpu.H = uint8(value >> 8)
@@ -315,7 +315,7 @@ func (cpu *CPU) LD_HL_u16() {
 
 func (cpu *CPU) LD_HLi_A() {
 	// 0x22: Store the value in register A at memory location HL, then increment HL
-	cpu.memory.StoreByte(cpu.HL(), cpu.A)
+	cpu.memory.Write(cpu.HL(), cpu.A)
 	cpu.SetHL(cpu.HL() + 1)
 	cpu.PC++
 }
@@ -334,7 +334,7 @@ func (cpu *CPU) DEC_H() {
 func (cpu *CPU) LD_H_u8() {
 	// 0x26: Load next byte into register H
 	cpu.PC++
-	cpu.H = cpu.memory.GetByte(cpu.PC)
+	cpu.H = cpu.memory.Read(cpu.PC)
 	cpu.PC++
 }
 
@@ -373,7 +373,7 @@ func (cpu *CPU) CPL() {
 
 func (cpu *CPU) JR_NC_r8() {
 	// 0x30: If C flag == 0, jump to PC + r8
-	offset := int8(cpu.memory.GetByte(cpu.PC + 1))
+	offset := int8(cpu.memory.Read(cpu.PC + 1))
 
 	if !cpu.GetCarryFlag() {
 		cpu.PC += uint16(offset) + 2
@@ -385,9 +385,9 @@ func (cpu *CPU) JR_NC_r8() {
 func (cpu *CPU) LD_SP_u16() {
 	// 0x31: Set SP to next two bytes in program
 	cpu.PC++
-	low := cpu.memory.GetByte(cpu.PC)
+	low := cpu.memory.Read(cpu.PC)
 	cpu.PC++
-	high := cpu.memory.GetByte(cpu.PC)
+	high := cpu.memory.Read(cpu.PC)
 	address := (uint16(high)<<8 | uint16(low))
 	cpu.SP = address
 	cpu.PC++
@@ -408,7 +408,7 @@ func (cpu *CPU) INC_A() {
 func (cpu *CPU) LD_A_u8() {
 	// 0x3E: Load next byte into register A
 	cpu.PC++
-	cpu.A = cpu.memory.GetByte(cpu.PC)
+	cpu.A = cpu.memory.Read(cpu.PC)
 	cpu.PC++
 }
 
@@ -419,7 +419,7 @@ func (cpu *CPU) LD_B_B() {
 
 func (cpu *CPU) LD_B_HL() {
 	// 0x46: Load the value at memory location HL into register B
-	cpu.B = cpu.memory.GetByte(cpu.HL())
+	cpu.B = cpu.memory.Read(cpu.HL())
 
 	cpu.PC++
 }
@@ -432,7 +432,7 @@ func (cpu *CPU) LD_B_A() {
 
 func (cpu *CPU) LD_C_HL() {
 	// 0x4E: Load the value at memory location HL into register C
-	cpu.C = cpu.memory.GetByte(cpu.HL())
+	cpu.C = cpu.memory.Read(cpu.HL())
 
 	cpu.PC++
 }
@@ -451,7 +451,7 @@ func (cpu *CPU) LD_D_L() {
 
 func (cpu *CPU) LD_D_HL() {
 	// 0x56: Load the value at memory location HL into register D
-	cpu.D = cpu.memory.GetByte(cpu.HL())
+	cpu.D = cpu.memory.Read(cpu.HL())
 
 	cpu.PC++
 }
@@ -482,19 +482,19 @@ func (cpu *CPU) LD_L_A() {
 
 func (cpu *CPU) LD_HL_B() {
 	// 0x70: Store the value in register B at memory location HL
-	cpu.memory.StoreByte(cpu.HL(), cpu.B)
+	cpu.memory.Write(cpu.HL(), cpu.B)
 	cpu.PC++
 }
 
 func (cpu *CPU) LD_HL_C() {
 	// 0x71: Store the value in register C at memory location HL
-	cpu.memory.StoreByte(cpu.HL(), cpu.C)
+	cpu.memory.Write(cpu.HL(), cpu.C)
 	cpu.PC++
 }
 
 func (cpu *CPU) LD_HL_D() {
 	// 0x72: Store the value in register D at memory location HL
-	cpu.memory.StoreByte(cpu.HL(), cpu.D)
+	cpu.memory.Write(cpu.HL(), cpu.D)
 	cpu.PC++
 }
 
@@ -576,7 +576,7 @@ func (cpu *CPU) ADD_A_E() {
 
 func (cpu *CPU) XOR_A_HL() {
 	// 0xAE: Perform XOR operation with value from memory location stored in HL on register A
-	cpu.A ^= cpu.memory.GetByte(cpu.HL())
+	cpu.A ^= cpu.memory.Read(cpu.HL())
 
 	cpu.SetZeroFlag(cpu.A == 0)
 	cpu.SetCarryFlag(false)
@@ -600,9 +600,9 @@ func (cpu *CPU) CP_A_C() {
 
 func (cpu *CPU) POP_BC() {
 	// 0xC1: Pop two bytes from the stack into register BC
-	low := cpu.memory.GetByte(cpu.SP)
+	low := cpu.memory.Read(cpu.SP)
 	cpu.SP++
-	high := cpu.memory.GetByte(cpu.SP)
+	high := cpu.memory.Read(cpu.SP)
 	cpu.SP++
 
 	cpu.B = high
@@ -613,9 +613,9 @@ func (cpu *CPU) POP_BC() {
 func (cpu *CPU) JP_u16() {
 	// 0xC3: Set PC to next two bytes in program
 	cpu.PC++
-	low := cpu.memory.GetByte(cpu.PC)
+	low := cpu.memory.Read(cpu.PC)
 	cpu.PC++
-	high := cpu.memory.GetByte(cpu.PC)
+	high := cpu.memory.Read(cpu.PC)
 	address := (uint16(high)<<8 | uint16(low))
 	cpu.PC = address
 }
@@ -628,9 +628,9 @@ func (cpu *CPU) PUSH_BC() {
 
 func (cpu *CPU) RET() {
 	// 0xC9: Return from subroutine
-	low := cpu.memory.GetByte(cpu.SP)
+	low := cpu.memory.Read(cpu.SP)
 	cpu.SP++
-	high := cpu.memory.GetByte(cpu.SP)
+	high := cpu.memory.Read(cpu.SP)
 	cpu.SP++
 
 	cpu.PC = uint16(high)<<8 | uint16(low)
@@ -639,7 +639,7 @@ func (cpu *CPU) RET() {
 func (cpu *CPU) ExecuteCBOpcode() {
 	// 0xCB: Prefixed opcodes
 	cpu.PC++
-	opcode := cpu.memory.GetByte(cpu.PC)
+	opcode := cpu.memory.Read(cpu.PC)
 	handler := opcodeCBTable[opcode]
 
 	if handler != nil {
@@ -658,9 +658,9 @@ func (cpu *CPU) ExecuteCBOpcode() {
 func (cpu *CPU) CALL_u16() {
 	// 0xCD: Push PC to stack, load next two bytes into PC
 	cpu.PC++
-	low := cpu.memory.GetByte(cpu.PC)
+	low := cpu.memory.Read(cpu.PC)
 	cpu.PC++
-	high := cpu.memory.GetByte(cpu.PC)
+	high := cpu.memory.Read(cpu.PC)
 	address := uint16(high)<<8 | uint16(low)
 
 	cpu.PC++
@@ -671,9 +671,9 @@ func (cpu *CPU) CALL_u16() {
 
 func (cpu *CPU) POP_DE() {
 	// 0xD1: Pop two bytes from the stack into register DE
-	low := cpu.memory.GetByte(cpu.SP)
+	low := cpu.memory.Read(cpu.SP)
 	cpu.SP++
-	high := cpu.memory.GetByte(cpu.SP)
+	high := cpu.memory.Read(cpu.SP)
 	cpu.SP++
 
 	cpu.D = high
@@ -690,15 +690,15 @@ func (cpu *CPU) PUSH_DE() {
 func (cpu *CPU) LD_u8C_A() {
 	// 0xE0: Load value of register A into memory location of 0xFF00 + register C
 	address := 0xFF00 + uint16(cpu.C)
-	cpu.memory.StoreByte(address, cpu.A)
+	cpu.memory.Write(address, cpu.A)
 	cpu.PC++
 }
 
 func (cpu *CPU) POP_HL() {
 	// 0xE1: Pop two bytes from the stack into register HL
-	low := cpu.memory.GetByte(cpu.SP)
+	low := cpu.memory.Read(cpu.SP)
 	cpu.SP++
-	high := cpu.memory.GetByte(cpu.SP)
+	high := cpu.memory.Read(cpu.SP)
 	cpu.SP++
 
 	cpu.H = high
@@ -715,18 +715,18 @@ func (cpu *CPU) PUSH_HL() {
 func (cpu *CPU) LD_u16_A() {
 	// 0xEA: Load register A to memory location of next two bytes
 	cpu.PC++
-	low := cpu.memory.GetByte(cpu.PC)
+	low := cpu.memory.Read(cpu.PC)
 	cpu.PC++
-	high := cpu.memory.GetByte(cpu.PC)
+	high := cpu.memory.Read(cpu.PC)
 	location := (uint16(high)<<8 | uint16(low))
-	cpu.memory.StoreByte(location, cpu.A)
+	cpu.memory.Write(location, cpu.A)
 	cpu.PC++
 }
 
 func (cpu *CPU) XOR_A_u8() {
 	// 0xEE: Perform XOR operation with value of the next byte on register A
 	cpu.PC++
-	cpu.A ^= cpu.memory.GetByte(cpu.PC)
+	cpu.A ^= cpu.memory.Read(cpu.PC)
 
 	cpu.SetZeroFlag(cpu.A == 0)
 	cpu.SetCarryFlag(false)
@@ -739,15 +739,15 @@ func (cpu *CPU) XOR_A_u8() {
 func (cpu *CPU) LD_A_u8C() {
 	// 0xF0: Load value at 0xFF00 + C into register A
 	address := 0xFF00 + uint16(cpu.C)
-	cpu.A = cpu.memory.GetByte(address)
+	cpu.A = cpu.memory.Read(address)
 	cpu.PC++
 }
 
 func (cpu *CPU) POP_AF() {
 	// 0xF1: Pop two bytes from the stack into register AF
-	low := cpu.memory.GetByte(cpu.SP)
+	low := cpu.memory.Read(cpu.SP)
 	cpu.SP++
-	high := cpu.memory.GetByte(cpu.SP)
+	high := cpu.memory.Read(cpu.SP)
 	cpu.SP++
 
 	cpu.A = high
@@ -776,12 +776,12 @@ func (cpu *CPU) LD_SP_HL() {
 func (cpu *CPU) LD_A_u16() {
 	// 0xFA: Loads the value from memory address of next two bytes to register A
 	cpu.PC++
-	low := cpu.memory.GetByte(cpu.PC)
+	low := cpu.memory.Read(cpu.PC)
 	cpu.PC++
-	high := cpu.memory.GetByte(cpu.PC)
+	high := cpu.memory.Read(cpu.PC)
 	address := uint16(high)<<8 | uint16(low)
 
-	cpu.A = cpu.memory.GetByte(address)
+	cpu.A = cpu.memory.Read(address)
 	cpu.PC++
 }
 
