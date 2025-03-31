@@ -113,10 +113,10 @@ func (cpu *CPU) Cycle() bool {
 	handler := opcodeTable[opcode]
 
 	if handler != nil {
-		//fmt.Printf("Executing opcode 0x%02X at PC 0x%04X\n", opcode, cpu.PC)
+		fmt.Printf("Executing opcode 0x%02X at PC 0x%04X\n", opcode, cpu.PC)
 		handler()
 	} else {
-		//fmt.Printf("Unhandled opcode 0x%02X at PC 0x%04X\n", opcode, cpu.PC)
+		fmt.Printf("Unhandled opcode 0x%02X at PC 0x%04X\n", opcode, cpu.PC)
 		return true
 	}
 	return false

@@ -9,7 +9,7 @@ import (
 func main() {
 	fmt.Println("Starting GoBoy Emulator")
 
-	cart, err := memory.LoadCartridge("cpu_instrs.gb")
+	cart, err := memory.LoadCartridge("Tetris.gb")
 	if err != nil {
 		fmt.Println("Error:", err)
 		return

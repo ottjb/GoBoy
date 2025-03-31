@@ -167,7 +167,7 @@ func (m *Memory) Write(addr uint16, value byte) {
 		m.hram[addr-0xFF80] = value
 
 	default:
-		fmt.Printf("Unhandle write at 0x%04X: %02X\n", addr, value)
+		fmt.Printf("Unhandled write at 0x%04X: %02X\n", addr, value)
 	}
 }
 
