@@ -2,220 +2,108 @@ package memory
 
 import (
 	"fmt"
-	"time"
 )
 
 type Memory struct {
-	cartridge  *Cartridge
-	rtc        *RTC
-	vram       [0x2000]byte
-	wram       [0x2000]byte
-	oam        [0xA0]byte // Sprite attribute table
-	hram       [0x7F]byte
-	io         [0x80]byte
-	romBank    int
-	ramBank    int
-	ramEnabled bool
+	cartridge   *Cartridge
+	mbc         MBC
+	vram        []byte
+	externalram []byte
+	wram        []byte
+	oam         []byte
+	io          []byte
+	hram        []byte
+	ie          byte
 }
 
-func NewMemory(cart *Cartridge, r *RTC) *Memory {
-	fmt.Println("Initializing Memory")
-	return &Memory{
-		cartridge: cart,
-		rtc:       r,
-		romBank:   1,
-		ramBank:   0,
-	}
+type MBC struct {
+	Type       byte
+	ROMBank    int
+	RAMBank    int
+	RAMEnabled bool
+	Mode       bool
 }
 
-func (m *Memory) Read(addr uint16) byte {
-	switch {
-	case addr < 0x4000: // Fixed ROM bank 0
-		return m.cartridge.rom[addr]
-
-	case addr >= 0x4000 && addr < 0x8000: // Switchable ROM bank
-		offset := int(addr-0x4000) + (m.romBank * 0x4000)
-		return m.cartridge.rom[offset]
-
-	case addr >= 0x8000 && addr < 0xA000: // Video RAM
-		return m.vram[addr-0x8000]
-
-	case addr >= 0xA000 && addr < 0xC000: // Cartridge RAM or RTC Registers
-		if !m.ramEnabled {
-			return 0xFF
-		}
-
-		if m.cartridge.mbcType == 3 && m.ramBank >= 0x08 && m.ramBank <= 0x0C {
-			if !m.rtc.latched {
-				m.UpdateRTC()
-			}
-
-			switch m.ramBank {
-			case 0x08: // Seconds
-				return m.rtc.seconds
-			case 0x09: // Minutes
-				return m.rtc.minutes
-			case 0x0A: // Hours
-				return m.rtc.hours
-			case 0x0B: // Days Low
-				return m.rtc.daysLow
-			case 0x0C: // Days High
-				return m.rtc.daysHigh
-			}
-			return 0xFF
-		} else if m.cartridge.rom != nil && int(addr-0xA000) < len(m.cartridge.rom) {
-			offset := int(addr-0xA000) + (m.ramBank * 0x2000)
-			if offset < len(m.cartridge.rom) {
-				return m.cartridge.rom[offset]
-			}
-		}
-		return 0xFF
-
-	case addr >= 0xC000 && addr < 0xE000: // Work RAM
-		return m.wram[addr-0xC000]
-
-	case addr >= 0xE000 && addr < 0xFE00: // Echo RAM (mirrors VRAM)
-		return m.wram[addr-0xE000]
-
-	case addr >= 0xFE00 && addr < 0xFEA0: // OAM
-		return m.oam[addr-0xFE00]
-
-	case addr >= 0xFF00 && addr < 0xFF80: // I/O Registers
-		return m.io[addr-0xFF00]
-
-	case addr >= 0xFF80 && addr < 0xFFFF: // High RAM
-		return m.hram[addr-0xFF80]
-
-	default:
-		fmt.Printf("Unhandled read at 0x%04X\n", addr)
-		return 0xFF
+// NewMemory initializes the memory with a loaded cartridge
+func NewMemory(cart *Cartridge) *Memory {
+	mem := &Memory{
+		cartridge:   cart,
+		mbc:         MBC{Type: cart.mbcType, ROMBank: 1}, // Default to ROM bank 1
+		vram:        make([]byte, 8*1024),                // 8KB
+		externalram: make([]byte, cart.ramSize),
+		wram:        make([]byte, 8*1024), // 8KB
+		oam:         make([]byte, 160),    // 160 bytes
+		io:          make([]byte, 128),    // 128 bytes
+		hram:        make([]byte, 127),    // 127 bytes
+		ie:          0,
 	}
+
+	// Initialize IO registers with default values
+	mem.io[0x05] = 0x00 // TIMA
+	mem.io[0x06] = 0x00 // TMA
+	mem.io[0x07] = 0x00 // TAC
+	mem.io[0x10] = 0x80 // NR10
+	mem.io[0x11] = 0xBF // NR11
+	mem.io[0x12] = 0xF3 // NR12
+	mem.io[0x14] = 0xBF // NR14
+	mem.io[0x16] = 0x3F // NR21
+	mem.io[0x17] = 0x00 // NR22
+	mem.io[0x19] = 0xBF // NR24
+	mem.io[0x1A] = 0x7F // NR30
+	mem.io[0x1B] = 0xFF // NR31
+	mem.io[0x1C] = 0x9F // NR32
+	mem.io[0x1E] = 0xBF // NR34
+	mem.io[0x20] = 0xFF // NR41
+	mem.io[0x21] = 0x00 // NR42
+	mem.io[0x22] = 0x00 // NR43
+	mem.io[0x23] = 0xBF // NR44
+	mem.io[0x24] = 0x77 // NR50
+	mem.io[0x25] = 0xF3 // NR51
+	mem.io[0x26] = 0xF1 // NR52
+	mem.io[0x40] = 0x91 // LCDC
+	mem.io[0x41] = 0x85 // STAT
+	mem.io[0x42] = 0x00 // SCY
+	mem.io[0x43] = 0x00 // SCX
+	mem.io[0x45] = 0x00 // LYC
+	mem.io[0x47] = 0xFC // BGP
+	mem.io[0x48] = 0xFF // OBP0
+	mem.io[0x49] = 0xFF // OBP1
+	mem.io[0x4A] = 0x00 // WY
+	mem.io[0x4B] = 0x00 // WX
+	mem.io[0xFF] = 0x00 // IE
+
+	return mem
 }
 
-func (m *Memory) Write(addr uint16, value byte) {
-	switch {
-	case addr == 0x6000: // Latch RTC
-		if value == 0x00 {
-			m.rtc.latched = false
-		} else if value == 0x01 {
-			m.UpdateRTC()
-			m.rtc.latched = true
-		}
-	case addr < 0x2000: // Enable/Disable RAM
-		m.ramEnabled = (value & 0x0F) == 0x0A
+// 0x0000 - 0x3FFF: ROM Bank 0
+// 0x4000 - 0x7FFF: ROM Bank 01 - NN (switchable)
+// 0x8000 - 0x9FFF: Video RAM
+// 0xA000 - 0xBFFF: External RAM (cartridge)
+// 0xC000 - 0DFFF: Work RAM
+// 0xE000 - 0xFDFF: Echo RAM (mirrors 0xC000 - 0xDDFF)
+// 0xFE00 - 0xFE9F: Object Attribute Memory
+// 0xFEA0 - 0xFEFF: Not usable
+// 0xFF00 - 0xFF7F: I/O Registers
+// 0xFF80 - 0xFFFE: High RAM
+// 0xFFFF - 0xFFFF: Interrupt Enable Register
 
-	case addr >= 0x2000 && addr < 0x4000: // ROM Bank Switch
-		m.romBank = m.selectROMBank(value)
-
-	case addr >= 0x4000 && addr < 0x6000: // RAM Bank Switch / Mode select
-		m.ramBank = int(value & 0x03)
-
-	case addr >= 0x6000 && addr < 0x8000: // Latch clock data
-		if m.cartridge.mbcType == 3 {
-			static := value & 0x01
-			if static == 0x01 && !m.rtc.latched {
-				m.UpdateRTC()
-				m.rtc.latched = true
-			} else if static == 0x00 {
-				m.rtc.latched = false
-			}
-		}
-
-	case addr >= 0x8000 && addr < 0xA000: // VRAM
-		m.vram[addr-0x8000] = value
-
-	case addr >= 0xA000 && addr < 0xC000: // Cartridge RAM or RTC Registers (MBC3)
-		if !m.ramEnabled {
-			return
-		}
-
-		if m.cartridge.mbcType == 3 && m.ramBank >= 0x08 && m.ramBank <= 0x0C {
-			switch m.ramBank {
-			case 0x08: // Seconds
-				m.rtc.seconds = value
-			case 0x09: // Minutes
-				m.rtc.minutes = value
-			case 0x0A: // Hours
-				m.rtc.hours = value
-			case 0x0B: // Days Low
-				m.rtc.daysLow = value
-			case 0x0C: // Writing to Days High register
-				m.rtc.daysHigh = value
-				m.rtc.latched = (value & 0x40) != 0
-			}
-		} else if m.cartridge.rom != nil {
-			// Write to Cartridge RAM
-			offset := int(addr-0xA000) + (m.ramBank * 0x2000)
-			if offset < len(m.cartridge.rom) {
-				m.cartridge.rom[offset] = value
-			}
-		}
-
-	case addr >= 0xC000 && addr < 0xE000: // Work RAM
-		m.wram[addr-0xC000] = value
-
-	case addr >= 0xE000 && addr < 0xFE00: // Echo RAM
-		m.wram[addr-0xFE00] = value
-
-	case addr >= 0xFE00 && addr < 0xFEA0: // OAM
-		m.oam[addr-0xFE00] = value
-
-	case addr >= 0xFF00 && addr < 0xFF80: // I/O Registers
-		m.io[addr-0xFF00] = value
-
-	case addr >= 0xFF80 && addr < 0xFFFF: // High RAM
-		m.hram[addr-0xFF80] = value
-
-	default:
-		fmt.Printf("Unhandled write at 0x%04X: %02X\n", addr, value)
+func (mem *Memory) Read(addr uint16) byte {
+	if addr < 0x4000 {
+		// ROM Bank 0
+		return mem.cartridge.rom[addr]
+	} else if addr < 0x8000 {
+		// Switchable ROM bank
+		offset := uint32(mem.mbc.ROMBank) * 0x4000
+		return mem.cartridge.rom[offset+uint32(addr-0x4000)]
+	} else if addr < 0xA000 {
+		// VRAM
+		return mem.vram[addr-0x8000]
 	}
+
+	fmt.Println("Unimplemented read")
+	return 0
 }
 
-func (m *Memory) selectROMBank(value byte) int {
-	switch m.cartridge.mbcType {
-	case 1: // MBC1
-		bank := int(value & 0x1F)
-		if bank == 0 {
-			bank = 1
-		}
-		return bank
-
-	case 3: // MBC3
-		return int(value & 0x7F)
-
-	case 5: // MBC5
-		return int(value)
-
-	default:
-		return 1
-	}
-}
-
-func (m *Memory) UpdateRTC() {
-	if m.rtc.daysHigh&0x40 != 0 {
-		return // No update if latched
-	}
-
-	now := time.Now()
-	elapsed := now.Sub(m.rtc.lastSync)
-
-	seconds := int(m.rtc.seconds) + int(elapsed.Seconds())
-	m.rtc.seconds = byte(seconds % 60)
-
-	minutes := int(m.rtc.minutes) + (seconds / 60)
-	m.rtc.minutes = byte(minutes % 60)
-
-	hours := int(m.rtc.hours) + (minutes / 60)
-	m.rtc.hours = byte(hours % 24)
-
-	days := int(m.rtc.daysLow) + (hours / 24)
-	m.rtc.daysLow = byte(days & 0xFF)
-	if days > 0xFF {
-		m.rtc.daysHigh = (m.rtc.daysHigh & 0xFE) | 0x01
-		if (days >> 8) > 1 {
-			m.rtc.daysHigh |= 0x80
-		}
-	}
-
-	m.rtc.lastSync = now
+func (mem *Memory) Write(addr uint16, value byte) {
+	fmt.Println("Unimplemented write")
 }

@@ -17,9 +17,7 @@ func main() {
 		cart.Debug()
 	}
 
-	rtc := memory.NewRTC()
-
-	m := memory.NewMemory(cart, rtc)
+	m := memory.NewMemory(cart)
 
 	cpu := internal.NewCPU(m)
 	cpu.InitOpcodeTable()
